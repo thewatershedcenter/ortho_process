@@ -1,11 +1,5 @@
 #!/bin/python
 
-'''
-python normalize.py \
---infile=/media/data/SouthForkMountain/tiled_pc_32610/SFM_0_-1_32610.las \
---outfile='buster.las' \
---Glim=1.1
-'''
 
 import numpy as np
 import pdal
