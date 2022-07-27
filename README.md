@@ -127,7 +127,7 @@ data/
     |__tiled_DEM_p2m
     |              |__points_0_0_ungr.tif
     |              |__points_0_1_ungr.tif
-    |              |__ ...
+    |              |__ ...z`
     |              |__points_22_3_ungr.tif
     |
     |__tiled_DEM_1m
@@ -137,4 +137,37 @@ data/
                    |__points_22_3_ungr.tif
 ```
 
-ls tiled_las | parallel --progress -I{} -j 12 python ~/Work/ortho_process/normalize.py --infile=tiled_las/{} --outfile=tiled_ungreen/{/.}_ungr.las --Glim=1.1
+4. Make vrts for the DEMs using `gdalbuildvrt`. Something like this:
+
+```
+gdalbuildvrt tiled_DEM_1m/sfm_dem_1m.vrt tiled_DEM_1m/*.tif
+gdalbuildvrt tiled_DEM_p2m/sfm_dem_p2m.vrt tiled_DEM_p2m/*.tif
+```
+
+This will add the vrts to the DEM directories:
+
+```
+...
+    |
+    |__tiled_DEM_p2m
+    |              |__points_0_0_ungr.tif
+    |              |__points_0_1_ungr.tif
+    |              |__ ...z`
+    |              |__points_22_3_ungr.tif
+    |              |__sfm_dem_1m.vrt 
+    |
+    |__tiled_DEM_1m
+                   |__points_0_0_ungr.tif
+                   |__points_0_1_ungr.tif
+                   |__ ...
+                   |__points_22_3_ungr.tif
+                   |__sfm_dem_p2m.vrt
+```
+
+5. fill in the missing data in DEMs from most recent 3DEP
+
+6. Make slope maps from the DEMs:
+
+```
+gdaldem slope $SRC $DST -alg Horn
+```
