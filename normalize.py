@@ -40,7 +40,7 @@ def parse_arguments():
         '--Rlim',
         type=float,
         required=False,
-        help='limit of redness above which points will be dropped',
+        help='Limit of redness above which points will be dropped',
     )
 
     # add args
@@ -48,7 +48,7 @@ def parse_arguments():
         '--Glim',
         type=float,
         required=False,
-        help='limit of greeness above which points will be dropped',
+        help='Limit of greeness above which points will be dropped',
     )
 
     # add args
@@ -56,7 +56,7 @@ def parse_arguments():
         '--Blim',
         type=float,
         required=False,
-        help='limit of blueness above which points will be dropped',
+        help='Limit of blueness above which points will be dropped',
     )
 
     parser.add_argument(
