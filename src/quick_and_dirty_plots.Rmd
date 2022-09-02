@@ -63,11 +63,11 @@ samples <- clip_circle(ctg, x=xy[, 1], y=xy[, 2], radius=r)
 
 ```
 
-write normalized 
 
 
+Make sample products.
 
-```{r sample2}
+```{r swrite files}
 
 ttops_path <- "/data/ttops"
 dir.create(ttops_path, showWarnings=FALSE)
@@ -114,7 +114,7 @@ for (i  in 1:length(sample_plots)) {
 
 
 Quickly pump out some haggard DEM disks
-``` {r chm experiment}
+```{r DEMs}
 for (i in 1:length(samples)) {
   print(i)
   fname <- file.path(data, "disk_dtm", paste0("disk_", i, ".tif"))
