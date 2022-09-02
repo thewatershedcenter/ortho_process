@@ -195,3 +195,8 @@ optional arguments:
   --modify           Normalize the the R, G, B dimensions and return a lasfile
 
 ```
+
+
+## src/quick_and_dirty_plots.Rmd ##
+
+Self explanatory R markdown for creating demonstration plot data quickly.  Created for generating demo plot data for presentations.  Not made with quality plot data for analysis in mind.

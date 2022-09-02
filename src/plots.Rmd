@@ -1,0 +1,180 @@
+---
+title: "test"
+author: "Michael Huggins"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# import libraries
+library(terra)
+library(sf)
+library(lidR)
+library(future)
+
+# tell lidR to use all available threads
+set_lidr_threads(0)
+
+# set up the future session
+plan(multisession)
+
+```
+
+## Load data
+
+Here we will just load the bit of CarrHirzDelta1 rlevant to this project.  I have created a directory with just the tiles covering the generalized Bowerman ridge area.  I then ran `lasindex -i *.laz -append` within the directory.  This creates a spatial indexing file for all LAZ files and appends them to then end of the LAZ file.  It makes reading much faster.
+
+We really only need the x, y, z, coordinates and classification for this operation.  We will select only those dimensions while reading the points into the catalog.
+
+```{r data, echo=False}
+
+# paths
+data <- "/home/michael/storage/SFM3"
+lidar <- "/home/michael/storage/SFM3/South_Fork_Mountain_Phase_1-dense_point_cloud.copc.laz"
+gpkg  <- file.path(data, "plots.gpkg")
+
+# read the points into ctg
+ctg <- readLAScatalog(lidar, select="xyzc", filter="-drop_z_below 1")
+
+# rechunk
+opt_chunk_size(ctg) <- 250
+opt_chunk_buffer(ctg) <- 10
+
+# plot
+plot(ctg, chunk=TRUE)
+```
+
+Now we need to check the validity of the data.  Here the number of VLRs is inconsistent.  That should not really cause us problems though.
+
+```{r check}
+las_check(ctg)
+```
+
+Now let's load our area of interest (AOI). We will start with just the USFS Project boundaries. Later we will run the entire area. We will also buffer the poygons so the edges are not messed up in the final product.
+
+```{r load_vect, echo=False}
+
+# read gpkg
+plot_points <- st_read(gpkg)
+
+# sample radius (m)
+r <- 56.42
+buff <- 15
+
+# get plot polygons
+plots <- st_buffer(plot_points, r)
+
+plot(plots)
+
+```
+
+Now we will clip the ctg to the polygon.  This takes a while.  Without using the future package it takes ages.
+
+```{r clip, echo=False}
+# extract the x, y coords from plot points
+xy <- st_coordinates(plot_points)
+
+# extract plots
+sample_plots <- clip_circle(ctg, x=xy[, 1], y=xy[, 2], radius=r+buff)
+```
+
+Below we normalize the point cloud.  First we create a directory to store the chunked output of our analysis.  We also delete the directory if it is there. It seems that lidR throws an error if the file already exists within the directory, so we will just obliterate the whole thing if it exists.  We could use `tempdir()` as the directory to avoid this problem, but it is nice to have the option of accessing the intermediate point clouds later.
+
+The LAScatalog needs a template for the output file names.  Since we rechuncked the files after reading we cannot rely on the original file names in the template.  Instead we will use the upper left corner of the chunk `{XLEFT}_{YTOP}`.
+
+```{r z_norm, echo=False}
+
+n <- length(ctg_usfs)
+
+for (i in 1:n) {
+
+    # calculate HAG
+    ctg_norm <- normalize_height(ctg_usfs[[i]], tin())
+}
+
+
+
+```
+
+Now that we have normalized the height we can find individual trees. In this case a local maximum filter (lmf) is used with a 4 m search window. The 4 m window performed well in a series of tests previously run in the region, and in order to produce a provisional dataset fairly quickly is being used here. The next release of this dataset will feature more robust optimization of the parameter. 
+
+In order to assign unique IDs to each tree the bitmerge algorithm is used.  It is in an experimantal phase. We fix the format of the ID post hoc.
+
+```{r ttops, echo=False}
+# path to store ttops files
+ttops_path <- file.path(data, "ttops")
+
+# make sure ttops_path is not there
+unlink(ttops_path, recursive=TRUE)
+
+# make dir for output files
+dir.create(ttops_path, showWarnings=FALSE)
+
+# designate ttops_path as output path
+opt_output_files(ctg) <- paste0(ttops_path, "/{XLEFT}_{YTOP}")
+
+# locate trees
+ttops <- locate_trees(ctg_norm, lmf(4), uniqueness="bitmerge")
+
+# fix the bitmerge issues
+format(ttops$treeID, digits=16, scienfic=FALSE)
+```
+
+
+In order to segment trees using the `dalponte2016` algorithm. We need to first create a CHM. We will use 0.5 m resolution __find the citation bout how this is optimal__, and the pitfree algorithm with 
+
+```{r chm}
+
+# path to store normed point cloud
+chm_path <- file.path(data, "lidR_CHM")
+
+# make sure norm_path is empty/not there
+# (files in dir seem to cause error on re-run of notebook)
+unlink(chm_path, recursive=TRUE)
+
+# make dir for output files
+dir.create(chm_path, showWarnings=FALSE)
+
+# designate chm_path as output path
+opt_output_files(ctg_norm) <- paste0(chm_path, "/{XLEFT}_{YTOP}")
+
+# make chm
+chm <- rasterize_canopy(ctg_norm, 0.5, pitfree(max_edge=c(0, 1.5))
+
+```
+
+
+
+
+
+## ----------------------------------------------------------
+
+We run into an error because one of the chunks has no ground points.  It is probably a chunck that is fully in the lake.  We will need to get rid of such chunks.
+
+``` {r drop_no_ground}
+
+ground_filter <- function(chunk)
+{
+    las = readLAS(chunk)
+    if (is.empty(las)) return(NULL)
+
+    #filters ground points for each 
+    ground <- lasfilter(las, Classification == 2)                            
+
+    if (is.empty(ground))                                       #if no ground points are found returns NULL
+    return(NULL)
+
+    terrain <- grid_terrain(las, res= 1, tin())
+    bbox <- raster::extent(chunk)
+    terrain <- raster::crop(terrain, bbox)
+    return(terrain)                                             #if ground points are found returns terrain
+}
+
+opt_chunk_buffer(ctg_0) <- 30                                 #needs to be > 0 to avoid edge artifacts
+opt_output_files(ctg_0) <- paste(wd, "*_dtm", sep = "")       #export in directory
+
+DTM <- catalog_sapply(ctg_0, ground_filter)
+plot_dtm3d(DTM)
+```

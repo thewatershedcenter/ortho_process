@@ -1,0 +1,128 @@
+---
+title: "test"
+author: "Michael Huggins"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# import libraries
+library(terra)
+library(sf)
+library(lidR)
+library(future)
+
+# tell lidR to use all available threads
+set_lidr_threads(0)
+
+# set up the future session
+plan(multisession)
+
+```
+
+## Load data
+
+Adjust paths to suit you needs 
+
+```{r data}
+# paths
+data <- "/home/michael/storage/SFM3"
+lidar <- file.path(data, "South_Fork_Mountain_Phase_1-dense_point_cloud.copc.laz")
+gpkg  <- file.path(data, "plots.gpkg")
+chm_path <- "/data/CHM/grid_canopy.vrt"
+
+ctg <- readLAScatalog(lidar, select="xyzcrnw", filter="-drop_z_below 1")
+plots <- st_read(gpkg)
+
+opt_chunk_size(ctg) <- 250
+opt_chunk_buffer(ctg) <- 10
+
+plot(ctg, chunk=TRUE)
+
+```
+
+Check the validity of the data.
+
+```{r check, echo=FALSE}
+las_check(ctg)
+```
+
+Create 1 ha sample plots
+
+``` {r sample}
+# sample radius (m)
+r <- 56.42
+
+# get x and y coords of points
+xy <- st_coordinates(plots)
+
+#extract plots
+samples <- clip_circle(ctg, x=xy[, 1], y=xy[, 2], radius=r)
+
+```
+
+write normalized 
+
+
+
+```{r sample2}
+
+ttops_path <- "/data/ttops"
+dir.create(ttops_path, showWarnings=FALSE)
+
+crowns_path <- "/data/crowns"
+dir.create(crowns_path, showWarnings=FALSE)
+
+dir.create(file.path(data, "disk_las"), showWarnings=FALSE)
+
+chm <- rast(chm_path)
+
+# for each sample plot
+for (i  in 1:length(sample_plots)) {
+  # read the las for the plot
+  las <- sample_plots[[i]]
+  
+  # find HAG  
+  norm_las <- normalize_height(las, tin())
+  
+  # find ttops
+  ttops <- locate_trees(norm_las, lmf(4))
+  
+  # define the algorithm fo tree segmentation
+  algo <- dalponte2016(chm, ttops)
+  
+  # segment the trees (stll as pointcloud)
+  trees <- segment_trees(las, algo)
+  
+  # calculate crown metrics and make ploygons
+  crowns <- crown_metrics(trees, func=.stdtreemetrics, geom="convex")
+  
+  # write the ttops and crowns to gpkgs
+  st_write(ttops, paste0(ttops_path, "/ttops_", i, ".gpkg"))
+  st_write(crowns, paste0(crowns_path, "/crowns_", i, ".gpkg"))
+
+  # write normed las
+  fname <- file.path(data, "disk_las", paste0("disk_norm", i, ".las"))
+  writeLAS(normed, fname)
+}
+
+
+```
+
+
+
+Quickly pump out some haggard DEM disks
+``` {r chm experiment}
+for (i in 1:length(samples)) {
+  print(i)
+  fname <- file.path(data, "disk_dtm", paste0("disk_", i, ".tif"))
+  las <- classify_ground(samples[[i]], algorithm = pmf(ws = 5, th = 3))
+  dtm <- rasterize_terrain(las, algorithm = knnidw(k = 10L, p = 2))
+  writeRaster(dtm, fname)
+}
+
+
+
+```
