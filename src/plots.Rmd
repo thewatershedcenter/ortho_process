@@ -36,7 +36,7 @@ lidar <- "/home/michael/storage/SFM3/South_Fork_Mountain_Phase_1-dense_point_clo
 gpkg  <- file.path(data, "plots.gpkg")
 
 # read the points into ctg
-ctg <- readLAScatalog(lidar, select="xyzc", filter="-drop_z_below 1")
+ctg <- readLAScatalog(lidar, select="xyzcrnw", filter="-drop_z_below 1")
 
 # rechunk
 opt_chunk_size(ctg) <- 250

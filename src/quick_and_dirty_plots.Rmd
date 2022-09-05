@@ -33,7 +33,7 @@ lidar <- file.path(data, "South_Fork_Mountain_Phase_1-dense_point_cloud.copc.laz
 gpkg  <- file.path(data, "plots.gpkg")
 chm_path <- "/data/CHM/grid_canopy.vrt"
 
-ctg <- readLAScatalog(lidar, select="xyzcrnw", filter="-drop_z_below 1")
+ctg <- readLAScatalog(lidar, select="xyzcrnw")
 plots <- st_read(gpkg)
 
 opt_chunk_size(ctg) <- 250
