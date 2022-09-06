@@ -1,5 +1,5 @@
 #!/bin/python
-
+# 
 
 import numpy as np
 import pdal
@@ -55,7 +55,9 @@ def parse_arguments():
 
     parser.add_argument(
         '--modify',
-        help='Normalize the the R, G, B dimensions and return a lasfile',
+        help='''Normalize the the R, G, B dimensions and return a
+        new lasfile with all original points.  If ommitted points
+        will be dropped based on the color limits''',
         action='store_true'
     )
 
@@ -127,7 +129,7 @@ else:
     if args.Blim:
         arr = arr[normB <= args.Blim]
 
-    msg = f'points dropped from {args.infile} based on criteria and results written to {args.outfile}'
+    msg = f'{n - arr.shape[0]} points dropped from {args.infile} based on criteria and results written to {args.outfile}'
 
 pipeline = pdal.Writer.las(filename=args.outfile, a_srs=srs).pipeline(arr)
 pipeline.execute()
