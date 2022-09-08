@@ -1,12 +1,16 @@
 #!/bin/python
 # 
-
+#%%
+import os
 import numpy as np
 import pdal
 import argparse
 import subprocess
 import json
+from osgeo import gdal
+from time import time
 
+#%%
 
 def parse_arguments():
     '''parses the arguments, returns args'''
@@ -19,46 +23,21 @@ def parse_arguments():
         '--infile',
         type=str,
         required=True,
-        help='Input file',
+        help='Input file. laz or las',
     )
 
     parser.add_argument(
         '--outfile',
         type=str,
         required=True,
-        help='Output file',
-    )
-
-    # add args
-    parser.add_argument(
-        '--Rlim',
-        type=float,
-        required=False,
-        help='Limit of redness above which points will be dropped',
-    )
-
-    # add args
-    parser.add_argument(
-        '--Glim',
-        type=float,
-        required=False,
-        help='Limit of greeness above which points will be dropped',
-    )
-
-    # add args
-    parser.add_argument(
-        '--Blim',
-        type=float,
-        required=False,
-        help='Limit of blueness above which points will be dropped',
+        help='Output tif',
     )
 
     parser.add_argument(
-        '--modify',
-        help='''Normalize the the R, G, B dimensions and return a
-        new lasfile with all original points.  If ommitted points
-        will be dropped based on the color limits''',
-        action='store_true'
+        '--tr',
+        type=str,
+        required=True,
+        help='File from which target resolution will be determined',
     )
 
     # parse the args
@@ -68,21 +47,11 @@ def parse_arguments():
 
 
 def norm_rgb(arr):
-    '''returns normed RGB on 256 scale'''
+    '''returns normed RGB'''
     total = arr['Red'] + arr['Green'] + arr['Blue']
     normR = arr['Red'] / total
     normG = arr['Green'] / total
     normB = arr['Blue'] / total
-
-    return(normR, normG, normB)
-
-
-def norm_rgb_256(arr):
-    '''returns normed RGB on 256 scale'''
-    total = arr['Red'] + arr['Green'] + arr['Blue']
-    normR = 255 * arr['Red'] // total
-    normG = 255 * arr['Green'] // total
-    normB = 255 * arr['Blue'] // total
 
     return(normR, normG, normB)
 
@@ -97,7 +66,21 @@ def get_srs(f):
     return srs
 
 
+def get_tr(f):
+    ras =  rasterio.open(f)
+    gt = ras.transform
+    tr = f'-tr {gt[0]} {gt[4]}'
+    txe = f'-txe {ras.bounds.left} {ras.bounds.right}'
+    tye = f'-tye {ras.bounds.bottom} {ras.bounds.top}'
+    ras.close()
+
+    return(tr, txe, tye)
+
+
 if __name__ == '__main__':
+
+    # start time
+    t0 = time()
 
     # bag the args
     args = parse_arguments()
@@ -108,30 +91,87 @@ if __name__ == '__main__':
     # read the points
     pipeline = pdal.Reader.las(filename=args.infile).pipeline()
     n = pipeline.execute()
-    print(f'{n} points read.')
+    print(f'\n{n} points read.')
     arr = pipeline.arrays[0]
 
-# modify the arr and return if that is the aim
-if args.modify:
-    arr['Red'], arr['Green'], arr['Blue'] = norm_rgb_256(arr)
-    msg = f'{args.infile} modified and written to {args.outfile}'
-
-# filter the arr if that is the aim
-else:
+    #  normalize color ratios
     normR, normG, normB = norm_rgb(arr)
 
-    if args.Rlim:
-        arr = arr[normR <= args.Rlim]
+    # calc triangular greenness index
+    tgi = normG - 0.39 * normR - 0.61 * normB
 
-    if args.Glim:
-        arr = arr[normG <= args.Glim]
+    # threshold for dropping TGI
+    # TODO: move to args 
+    thresh = 0.10
 
-    if args.Blim:
-        arr = arr[normB <= args.Blim]
+    # make a new data type with a TGI entry
+    new_dt = np.dtype(arr.dtype.descr + [('TGI', 'f8')])
 
-    msg = f'{n - arr.shape[0]} points dropped from {args.infile} based on criteria and results written to {args.outfile}'
+    # make mepty new array with same number of entries as old
+    new_arr = np.empty(arr.shape, dtype=new_dt)
 
-pipeline = pdal.Writer.las(filename=args.outfile, a_srs=srs).pipeline(arr)
-pipeline.execute()
-print(msg)
+    # copy data from old array
+    for dt in arr.dtype.descr:
+        new_arr[dt[0]] = arr[dt[0]]
+
+    # add TGI dimmension data
+    new_arr['TGI'] = tgi
+
+    # drop points with TGI > thresh
+    new_arr = new_arr[new_arr['TGI'] <= thresh]
+
+    # print message regarding how many points droped based on TGI
+    msg = f'{n - new_arr.shape[0]} points dropped based on TGI.'
+    print(msg)
+
+    # params
+    # TODO: move to args
+    window = 10
+    slope = 0.13
+    threshold = 0.35
+    scalar = 0.9
+    resolution=0.0217100000000000001
+
+    # create ground filter
+    ground = pdal.Filter.smrf(window=window,
+                              slope=slope,
+                              threshold=threshold,
+                              scalar=scalar)
+
+    # make into pipeline
+    pipeline = ground.pipeline(new_arr)
+
+    # execute ground filter pipeline
+    m = pipeline.execute()
+
+    # overwrite new_arr with classified pc
+    new_arr = pipeline.arrays[0]
+
+    # drop not-ground
+    new_arr = new_arr[new_arr['Classification'] == 2]
+
+    # print message wrt number of points
+    msg = (f'{m - new_arr.shape[0]} non-ground points dropped.'
+           + f'\nThere are {new_arr.shape[0]} ground points.'
+           + f'\n--- Elapsed time: {round(time() - t0, 1)} seconds ---'
+           + '\nInterpolating DEM may take a while ...')
+    print(msg)
+
+    # create writer
+    writer = pdal.Writer.gdal(filename=args.outfile,
+                              resolution=resolution,
+                              dimension='Z',
+                              output_type='max',
+                              window_size=40,
+                              default_srs=srs)
+
+
+
+    # execute pipeline to create DEM
+    pipeline = writer.pipeline(new_arr) 
+    pipeline.execute()
+
+    msg = (f'Results written to {args.outfile}'
+           + f'\n--- Total time: {round((time() - t0) / 60, 2)} minutes ---')
+    print(msg)
 
