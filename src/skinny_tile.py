@@ -184,8 +184,8 @@ if __name__ == '__main__':
 
     # target tile size (in map units)
     tile_size = args.tranche_size
-    n_tilesx = int(xlen // tile_size)
-    n_tilesy = int(ylen // tile_size)
+    n_tilesx = ceil(xlen / tile_size)
+    n_tilesy = ceil(ylen / tile_size)
 
     # steps
     xsteps = [minx + tile_size * n for n in range(n_tilesx + 1)]

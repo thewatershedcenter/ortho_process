@@ -130,7 +130,7 @@ if __name__ == '__main__':
     slope = 0.13
     threshold = 0.35
     scalar = 0.9
-    resolution=0.0217100000000000001
+    resolution=10.0217100000000000001
 
     # create ground filter
     ground = pdal.Filter.smrf(window=window,

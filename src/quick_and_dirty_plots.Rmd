@@ -28,15 +28,16 @@ Adjust paths to suit you needs
 
 ```{r data}
 # paths
-data <- "/home/michael/storage/SFM3"
+#data <- "/home/michael/storage/SFM3"
+data <- "/data"
 lidar <- file.path(data, "South_Fork_Mountain_Phase_1-dense_point_cloud.copc.laz")
 gpkg  <- file.path(data, "plots.gpkg")
-chm_path <- "/data/CHM/grid_canopy.vrt"
+#chm_path <- "/data/CHM/grid_canopy.vrt"
 
 ctg <- readLAScatalog(lidar, select="xyzcrnw")
 plots <- st_read(gpkg)
 
-opt_chunk_size(ctg) <- 250
+opt_chunk_size(ctg) <- 500
 opt_chunk_buffer(ctg) <- 10
 
 plot(ctg, chunk=TRUE)
@@ -63,29 +64,40 @@ samples <- clip_circle(ctg, x=xy[, 1], y=xy[, 2], radius=r)
 
 ```
 
+```{r make_chm}
+# designate chm_path as output path
+opt_output_files(ctg_aoi) <- file.path(tempdir(), "/{XLEFT}_{YTOP}")
 
+chm_path <- file.path(data, "lidR_CHM")
+dir.create(chm_path, showWarnings=FALSE)
+opt_output_files(ctg_norm) <- paste0(chm_path, "/{XLEFT}_{YTOP}")
+chm <- rasterize_canopy(ctg_norm, 0.5, pitfree(max_edge=c(0, 1.5)))
+
+```
 
 Make sample products.
 
 ```{r swrite files}
 
-ttops_path <- "/data/ttops"
+ttops_path <- "/data/ttops2"
 dir.create(ttops_path, showWarnings=FALSE)
 
-crowns_path <- "/data/crowns"
+crowns_path <- "/data/crowns2"
 dir.create(crowns_path, showWarnings=FALSE)
 
-dir.create(file.path(data, "disk_las"), showWarnings=FALSE)
+dir.create(file.path(data, "disk_las2"), showWarnings=FALSE)
 
-chm <- rast(chm_path)
+#chm <- rast(chm_path)
 
 # for each sample plot
-for (i  in 1:length(sample_plots)) {
+for (i  in 1:length(samples)) {
   # read the las for the plot
-  las <- sample_plots[[i]]
+  las <- samples[[i]]
   
   # find HAG  
   norm_las <- normalize_height(las, tin())
+  
+  chm <- rasterize_canopy(norm_las, 0.5, pitfree(max_edge=c(0, 1.5)))
   
   # find ttops
   ttops <- locate_trees(norm_las, lmf(4))
