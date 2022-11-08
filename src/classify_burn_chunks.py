@@ -135,7 +135,12 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
     normR, normG, normB = norm_rgb(new_arr)
 
     # calc triangular greenness index
-    tgi = normG - 0.39 * normR - 0.61 * normB
+    λr = 660
+    λg = 520
+    λb = 450
+
+    #tgi = normG - 0.39 * normR - 0.61 * normB
+    tgi = ((λr - λb) * (normR - normG) - (λr - λg) * (normR - normB)) / 2
 
     # change classification based on  tgi
     classification = new_arr['Classification']
