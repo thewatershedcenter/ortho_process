@@ -35,12 +35,12 @@ def parse_arguments():
         type=int,
         required=False,
         default=500,
-        help='''Single integer value determining x and y dimensions of tiles.
-        Currently only supports square tiles'''
+        help='''Optional. Single integer value determining x and y dimensions of tiles.
+        Default=500.Currently only supports square tiles. '''
     )
 
     parser.add_argument(
-        '--tgi_thresh',
+        '--vari_thresh',
         type=float,
         required=False,
         default=0.8,
@@ -119,7 +119,7 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
     arr = pipeline.arrays[0]
 
     # make a new data type with a TGI entry
-    new_dt = np.dtype(arr.dtype.descr + [('TGI', 'f8')])
+    new_dt = np.dtype(arr.dtype.descr + [('VARI', 'f8')])
 
     # make empty new array with same number of entries as old
     new_arr = np.empty(arr.shape, dtype=new_dt)
@@ -134,21 +134,16 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
     #  normalize color ratios
     normR, normG, normB = norm_rgb(new_arr)
 
-    # calc triangular greenness index
-    λr = 660
-    λg = 520
-    λb = 450
+    # Visible Atmospherically Resistant Index - Gitelson et al. 2002
+    vari  = (normG - normR) / (normG + normR + normB)
 
-    #tgi = normG - 0.39 * normR - 0.61 * normB
-    tgi = ((λr - λb) * (normR - normG) - (λr - λg) * (normR - normB)) / 2
-
-    # change classification based on  tgi
+    # change classification based on  vari
     classification = new_arr['Classification']
-    classification[tgi >= args.tgi_thresh] = 3
+    classification[vari >= args.vari_thresh] = 3
     new_arr['Classification'] = classification
 
-    # add TGI dimension data
-    new_arr['TGI'] = tgi
+    # add VARI dimension data
+    new_arr['VARI'] = vari
     
     # reclassify any low veg above 2m as med or high veg
     classification = new_arr['Classification']
@@ -160,7 +155,7 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
 
     out = os.path.join(
             os.path.dirname(args.infile),
-            'tiled_las'
+            f'tiled_las_vari_{int(args.vari_thresh * 10)}'
             )
     os.makedirs(out, exist_ok=True)
     out = os.path.join(out, outfile + '.laz')
@@ -175,7 +170,7 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
 
     out = os.path.join(
             os.path.dirname(args.infile),
-            'tiled_dem4'
+            f'tiled_dem4_vari_{int(args.vari_thresh * 10)}'
             )
     os.makedirs(out, exist_ok=True)
     out = os.path.join(out, outfile + '.tif')
@@ -188,7 +183,7 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
 
     out = os.path.join(
             os.path.dirname(args.infile),
-            'tiled_dem1'
+            f'tiled_dem1_vari_{int(args.vari_thresh * 10)}'
             )
     os.makedirs(out, exist_ok=True)
     out = os.path.join(out, outfile + '.tif')
