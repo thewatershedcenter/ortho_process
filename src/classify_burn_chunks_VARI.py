@@ -43,9 +43,9 @@ def parse_arguments():
         '--vari_thresh',
         type=float,
         required=False,
-        default=0.8,
+        default=0.0,
         help='''Triangular Greenness Index value above which
-        points will be dropped. Default value is 0.1''',
+        points will be dropped. Default value is 0.0''',
     )
 
     parser.add_argument(
@@ -73,7 +73,11 @@ def parse_arguments():
 
 def norm_rgb(arr):
     '''returns normed RGB'''
-    total = arr['Red'] + arr['Green'] + arr['Blue']
+    total = (
+        arr['Red'].astype('f8') +
+        arr['Green'].astype('f8') +
+        arr['Blue'].astype('f8')
+    )
     normR = arr['Red'] / total
     normG = arr['Green'] / total
     normB = arr['Blue'] / total
@@ -103,11 +107,7 @@ def get_bbox(f):
 def pipe_chunk(filename, poly_wkt, outfile, a_srs):
 
     # make pipeline
-    reader = pdal.Reader.copc(filename=filename, polygon=poly_wkt)
-    ground = pdal.Filter.csf(rigidness=args.csf_rigidness,
-                             step=args.csf_step)
-    hag = pdal.Filter.hag_nn(count=4)
-    pipeline = reader | ground | hag
+    pipeline = pdal.Reader.copc(filename=filename, polygon=poly_wkt).pipeline()
     
     # execute pipeline
     n = pipeline.execute()
@@ -136,14 +136,23 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
 
     # Visible Atmospherically Resistant Index - Gitelson et al. 2002
     vari  = (normG - normR) / (normG + normR + normB)
+    new_arr['VARI'] = vari
+
+    # filter ground and do hag
+    ground = pdal.Filter.csf(
+        rigidness=args.csf_rigidness,
+        step=args.csf_step,
+        where=f'VARI < {args.vari_thresh}'
+        ).pipeline(new_arr)
+    hag = pdal.Filter.hag_nn(count=4)
+    pipeline |= hag
+    n = pipeline.execute()
+    new_arr = pipeline.arrays[0]
 
     # change classification based on  vari
     classification = new_arr['Classification']
     classification[vari >= args.vari_thresh] = 3
     new_arr['Classification'] = classification
-
-    # add VARI dimension data
-    new_arr['VARI'] = vari
     
     # reclassify any low veg above 2m as med or high veg
     classification = new_arr['Classification']
@@ -166,7 +175,6 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
                              a_srs=a_srs)
 
     range = pdal.Filter.range(limits='Classification[2:2]')
-
 
     out = os.path.join(
             os.path.dirname(args.infile),
