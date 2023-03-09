@@ -108,7 +108,14 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
 
     # make pipeline
     pipeline = pdal.Reader.copc(filename=filename, polygon=poly_wkt).pipeline()
-    
+    ground = pdal.Filter.csf(
+        rigidness=args.csf_rigidness,
+        step=args.csf_step
+        )
+    hag = pdal.Filter.hag_nn(count=4)
+
+    pipeline |= ground
+    pipeline |= hag
     # execute pipeline
     n = pipeline.execute()
 
@@ -138,17 +145,6 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
     vari  = (normG - normR) / (normG + normR + normB)
     new_arr['VARI'] = vari
 
-    # filter ground and do hag
-    ground = pdal.Filter.csf(
-        rigidness=args.csf_rigidness,
-        step=args.csf_step,
-        where=f'VARI < {args.vari_thresh}'
-        ).pipeline(new_arr)
-    hag = pdal.Filter.hag_nn(count=4)
-    pipeline |= hag
-    n = pipeline.execute()
-    new_arr = pipeline.arrays[0]
-
     # change classification based on  vari
     classification = new_arr['Classification']
     classification[vari >= args.vari_thresh] = 3
@@ -174,40 +170,40 @@ def pipe_chunk(filename, poly_wkt, outfile, a_srs):
                              compression=True,
                              a_srs=a_srs)
 
-    range = pdal.Filter.range(limits='Classification[2:2]')
+    range_filter = pdal.Filter.range(limits='Classification[2:2]')
+
+    #out = os.path.join(
+    #        os.path.dirname(args.infile),
+    #        f'tiled_dem4_vari_{int(args.vari_thresh * 10)}'
+    #        )
+    #os.makedirs(out, exist_ok=True)
+    #out = os.path.join(out, outfile + '.tif')
+
+    #dem_4 = pdal.Writer.gdal(filename=out,
+    #                         resolution=4,
+    #                         output_type='mean',
+    #                         window_size=10
+    #                         )
 
     out = os.path.join(
             os.path.dirname(args.infile),
-            f'tiled_dem4_vari_{int(args.vari_thresh * 10)}'
-            )
-    os.makedirs(out, exist_ok=True)
-    out = os.path.join(out, outfile + '.tif')
-
-    dem_4 = pdal.Writer.gdal(filename=out,
-                             resolution=4,
-                             output_type='mean',
-                             window_size=10
-                             )
-
-    out = os.path.join(
-            os.path.dirname(args.infile),
-            f'tiled_dem1_vari_{int(args.vari_thresh * 10)}'
+            f'tiled_dem_0p5_vari_{int(args.vari_thresh * 10)}'
             )
     os.makedirs(out, exist_ok=True)
     out = os.path.join(out, outfile + '.tif')
    
 
-    dem_1 = pdal.Writer.gdal(filename=out,
-                             resolution=1,
-                             output_type='mean',
+    dem_0p5 = pdal.Writer.gdal(filename=out,
+                             resolution=0.5,
+                             output_type='min',
                              window_size=7
-                             )
+                            )
 
     # execute pipeline
     pipeline = writer.pipeline(new_arr)
-    pipeline |= range
-    pipeline |= dem_4 
-    pipeline |= dem_1
+    pipeline |= range_filter
+    #pipeline |= dem_4 
+    pipeline |= dem_0p5
     pipeline.execute()
 
 #%%
@@ -229,7 +225,7 @@ if __name__ == '__main__':
     n_tilesx = ceil(width / args.tile_size)
     n_tilesy = ceil(height / args.tile_size)
 
-    # steps
+     # steps
     xsteps = [bbox['minx'] + args.tile_size * n for n in range(n_tilesx + 1)]
     ysteps = [bbox['maxy'] - args.tile_size * n for n in range(n_tilesy + 1)]
 
@@ -237,10 +233,8 @@ if __name__ == '__main__':
     geometry = []
     ids = []
 
-    lazy = []
-
     for i in tqdm(range(len(ysteps) - 1)):
-        for j in range(len(xsteps) -1):
+        for j in range(len(xsteps) - 1):
 
             # get bounds of tile
             ymax = ysteps[i]
@@ -264,7 +258,7 @@ if __name__ == '__main__':
 
             # convert poly to wkt string
             poly_wkt = wkt.dumps(poly)
-
+            
             pipe_chunk(args.infile, poly_wkt, las_tile, srs)
 
     #with ProgressBar():

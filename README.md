@@ -1,202 +1,75 @@
 # High resolution ortho imagery and pointcloud processing tools #
 
 ## UAV ortho processing workflow ##
-1. Run `skinny_tile.py`. It will retile the orthophoto, DSM, and pointcloud into the same tiling scheme.  It will also create a tile index. It does this by reading a slice (from henceforth, and within the scripts comments,  called a _tranche_ in order to avoid confusion with the notion of an array slice in python) of each the orthophoto and the DSM into respective arrays,  then finding the range of valid data within that slice along the axis perpendicular to the tranche.  The extent of the data arrays within the tranche is then adjusted to the new bounds.  Then, for each tranche the arrays are clipped as squares and written to tiles.  The tiles are saved as polygons which are then used to a) create tiled point clouds by reading windows of the input pointcloud (formatted as copc) and b) create the tile index.
-&emsp; &emsp; It requires the orthophoto, DSM and pointcloud as arguments.  Optionally one may specify the `--tranche_size` argument which determines the thickness of the tranche in map units.  The default tranche thickness is 500. In the case of a high resolution image and map units of meters can be a very large file and may exhaust memory on some machines.  In the future it will be possible to choose which axis the initial slicing will take place, but at the moment it always occurs along the y axis.
-&emsp; &emsp; The tiled data will be written to their own directories within the directory housing the orthophoto.  If the orthophoto, DSM and pointcloud are called `ortho.tif`, `dsm.tif`, and `points.copc.laz`, and are all in the same directory, called `data`,  after running `skinny_tile.py` like so:
 
-```
-    python skinny_tile.py --ortho=ortho.tif --dsm=dsm.tif --copc=points.copc.laz 
-```
+This workflow begins with the vendor supplied point cloud and works through classification and quality control for the dataset. It is assumed that the vendor has provided a photogrammetric point cloud with RGB fields, a DSM and an orthoimage.  We also will need OGR readable vectors of the unit boundary and some sample points for testing. In this example we will be working in the directory `Unit_1` and the file contained therein are:
++ `unit1ppk_20220926_20230226-dense_point_cloud.laz`
++ `unit1ppk_20220926_20230226-dsm.tiff`
++ `unit1ppk_20220926_20230226-orthomosaic.tiff`
++ `unit_1_boundary.gpkg`
++ 
 
-&emsp; &emsp; the `data` directory will then have a structure like:
+The first step will be to classify the point cloud and create a DEM.  The script, `classify_burn_chunks_VARI.py` takes a copc as input then calculates the Visible Atmospherically Resistant Index (VARI) for each point and classifyies anything above the provided threshold as vegetation.  The classified point cloud is written as tiles into a new subdirectory.  A DEM is created from the minimum value of the ground returns within a pixel and written as tiles to a subdirectory. For more information on choosing an appropriate value see Choosing VARI Threshold section below. 
 
-```
-    data/
-        |__ortho.tif
-        |__dsm.tif
-        |__points.copc.las
-        |__tindex.gpkg
-        |__tiled_ortho
-        |            |__ortho_0_0.tif
-        |            |__ortho_0_1.tif
-        |            |__ ...
-        |            |__ortho_22_3.tif
-        |
-        |__tiled_dsm
-        |            |__dsm_0_0.tif
-        |            |__dsm_0_1.tif
-        |            |__ ...
-        |            |__dsm_22_3.tif
-        |
-        |__tiled_points
-                    |__points_0_0.laz
-                    |__points_0_1.laz
-                    |__ ...
-                    |__points_22_3.laz
-```
+:
++ Create a copc from the laz/las file. An easy way to do so is to open the laz/s file in QGIS, it will build a copc next to the source file in its directory.
++ Start an appropriate conda or virtual env.
++ Classify the point cloud using  `python classify_burn_chunks_VARI.py --infile=$LAZ --vari_thresh=0.0100932` where the variable `$LAZ` is the path to the copc file made in the previous step.  The parameter `--vari_thresh` is the threshold of the Visible Atmospherically Resistant Index above which points will be classed as vegetation. Use `python classify_burn_chunks_VARI.py -h` for other options.
++ After the above steps there will be two new directories next to the original laz/s file. Enter the directory `tiled_las_vari_0` and make a vrt using `gdalbuildvrt dem_0p5_vari_0.vrt *.tif`.
 
-2. Run `normalize.py`.  Create a directory for pointclouds with high normalized greenness points removed.  Set the upper limit of normalized green (`--Glim`) to remove (most of) points that are vegetation.  Typically 1.1 or 1.2 is a reasonable value for `--Glim` but the needed value will vary across different landcover types and seasons.  For more information on other functionality of `normalize.py` see the dedicated section below.
-&emsp; &emsp; For this example we will call the output directory `tiled_ungreen` and working in the directory structure created in step 1. Due to the fact that `normalize.py' is single threaded the process will be sped up greatly by running the tiles in parallel. Here we use GNU parallel, but it could be parallelized in other ways, or just run in a for loop:
-
+Now the contents of the directory should look like this:
 ```
-    ls tiled_points | parallel --progress -I{} -j 12 \
-    python normalize.py \
-    --infile=tiled_points/{} \
-    --outfile=tiled_ungreen/{/.}_ungr.las \
-    --Glim=1.1
+|__Unit_1__
+           |__unit_1_boundary.gpkg
+           |__unit_1_sample_points.gpkg
+           |__unit1ppk_20220926_20230226-dense_point_cloud.laz
+           |__unit1ppk_20220926_20230226-dense_point_cloud.copc.laz
+           |__tiled_dem_0p5_vari_0__
+           |                        |__0_0.laz
+           |                        |__0_1.laz
+           |                        |__...
+           |                        |__n_m.laz
+           |
+           |__tiled_las_vari_0__
+                                |__dem_0p5_vari_0.vrt
+                                |__0_0.tif
+                                |__0_1.tif
+                                |__...
+                                |__n_m.tif
 ```
 
-&emsp;  &emsp; This results in the following directory structure:
+At this point it is a good idea to inspect the output DEM and compare to USGS 3DEP data if available.  A helpful comparison is to compare the DEM difference between the two in a pixel by pixel basis.
 ```
-    data/
-        |__ortho.tif
-        |__dsm.tif
-        |__points.copc.las
-        |__tindex.gpkg
-        |__tiled_ortho_
-        |              |__ortho_0_0.tif
-        |              |__ortho_0_1.tif
-        |              |__ ...
-        |              |__ortho_22_3.tif
-        |
-        |__tiled_dsm___
-        |              |__dsm_0_0.tif
-        |              |__dsm_0_1.tif
-        |              |__ ...
-        |              |__dsm_22_3.tif
-        |
-        |__tiled_points
-        |              |__points_0_0.laz
-        |              |__points_0_1.laz
-        |              |__ ...
-        |              |__points_22_3.laz
-        |
-        |__tiled_ungreen
-                    |__points_0_0_ungr.las
-                    |__points_0_1_ungr.las
-                    |__ ...
-                    |__points_22_3_ungr.las
+gdalwarp -of GTIFF \
+    -tr 1.0 1.0 \
+    -tap \
+    -cutline unit_1_boundary.gpkg \
+    -crop_to_cutline \
+    -co TILED=YES \
+    tiled_las_vari_0/dem_0p5_vari_0.vrt \
+    unit_1_dem_0p5_vari_1m.tif
+
+gdalwarp -of GTIFF \
+    -tr 1.0 1.0 \
+    -tap \
+    -cutline unit_1_boundary.gpkg \
+    -crop_to_cutline \
+    -co TILED=YES \
+    path/to/USGS/opr_DEM.vrt \
+    unit_1_dem_opr_1m.tif
+
+gdal_calc.py --calc='A-B' --outfile=unit_1_diff.tif -A unit_1_dem_0p5_vari_1m.tif -B unit_1_dem_opr_1m.tif
 ```
+The above code block also provides us with a 1m resolution version of the DEM (trimmed to the unit boundary) If we look at the histogram of pixel values for `unit_1_dem_opr_1m.tif` it looks like this.
 
+![u1 density](figs/cc_DEM_diff_unit_1.png "not too bad, eh?")
 
+Which is not bad.  This, of course,  reflects vegetation that made it through the VARI filter and any actual change in ground surface that has occurred.  To get a more focused look at the actual difference we will look at 30 points positioned on road surfaces.  Ideally these would be on paved roads, but the AOI has no paved roads, so we wil have to use dirt roads.  Here is a picture of the sample points found in `unit_1_sample_points.gpkg` and the unit boundary over a slope map from the USGS 3DEP data.
 
-3. Run `create_dsm.sh`.  This takes two positional arguments, the directory of input point cloud files, in this case `tiled_ungreen`, and the number of threads to use.  It creates two new directories of outputs.  The first, `tiled_DEM_p2m` contains tiled 0.2m DEMs, the second `tiled_DEM_1m` contains tiled 1m DEMs. For example if we want to use 12 threads:
+<img src="images/s1.png" alt="map" width="750" height="500" title="let's sample these 'ol points, ya?"> 
 
-```
-    ./create_dsm.sh data/tiled_ungreen 12
-```
+We can sample the points using `src/sample_hist.py`. in this case it produces
 
-&emsp; &emsp; This results in the following directory structure:
-```
+<img src="figs/u1_sample_point_hist.png" alt="map" width="750" height="500" title="they have been sampled!"> 
 
-    data/
-        |__ortho.tif
-        |__dsm.tif
-        |__points.copc.las
-        |__tindex.gpkg
-        |__tiled_ortho_
-        |              |__ortho_0_0.tif
-        |              |__ortho_0_1.tif
-        |              |__ ...
-        |              |__ortho_22_3.tif
-        |
-        |__tiled_dsm___
-        |              |__dsm_0_0.tif
-        |              |__dsm_0_1.tif
-        |              |__ ...
-        |              |__dsm_22_3.tif
-        |
-        |__tiled_points
-        |              |__points_0_0.laz
-        |              |__points_0_1.laz
-        |              |__ ...
-        |              |__points_22_3.laz
-        |
-        |__tiled_ungreen
-        |              |__points_0_0_ungr.las
-        |              |__points_0_1_ungr.las
-        |              |__ ...
-        |              |__points_22_3_ungr.las
-        |
-        |__tiled_DEM_p2m
-        |              |__points_0_0_ungr.tif
-        |              |__points_0_1_ungr.tif
-        |              |__ ...z`
-        |              |__points_22_3_ungr.tif
-        |
-        |__tiled_DEM_1m
-                    |__points_0_0_ungr.tif
-                    |__points_0_1_ungr.tif
-                    |__ ...
-                    |__points_22_3_ungr.tif
-```
-
-4. Make vrts for the DEMs using `gdalbuildvrt`. Something like this:
-
-```
-    gdalbuildvrt tiled_DEM_1m/sfm_dem_1m.vrt tiled_DEM_1m/*.tif
-    gdalbuildvrt tiled_DEM_p2m/sfm_dem_p2m.vrt tiled_DEM_p2m/*.tif
-```
-
-&emsp; &emsp; This will add the vrts to the DEM directories:
-
-```
-    ...
-        |
-        |__tiled_DEM_p2m
-        |              |__points_0_0_ungr.tif
-        |              |__points_0_1_ungr.tif
-        |              |__ ...z`
-        |              |__points_22_3_ungr.tif
-        |              |__sfm_dem_1m.vrt 
-        |
-        |__tiled_DEM_1m
-                    |__points_0_0_ungr.tif
-                    |__points_0_1_ungr.tif
-                    |__ ...
-                    |__points_22_3_ungr.tif
-                    |__sfm_dem_p2m.vrt
-```
-
-5. fill in the missing data in DEMs from most recent 3DEP __Not yet implemented__
-
-6. Make slope maps from the DEMs:
-
-```
-    gdaldem slope $SRC $DST -alg Horn
-```
-
-7. Run `arbitrary_tindex_blaster.py` on the slope tiffs to tile them to the same scheme.
-
-```
-    mkdir tiled_slope
-    python arbitrary_tindex_blaster.py --tindex=tindex.gpkg --raster_to_blast=slope.tif --output_dir=tiled_slope
-```
-
-
-##  normalize<nolink>.py  ##
-
-The script `normalize.py` can be used in two modes. In the first mode, which was used in step 2 of the _UAV ortho processing workflow_ section above a new pointcloud is returned in which points with normalized color values above a given threshold are culled. Points can be dropped based on any combination of normalized red, green and blue thresholds.
-
-In the second mode a copy of the pointcloud is returned in which RGB values have been normalized.  This mode is evoked by passing the `--modify` flag.
-
-```
-usage: normalize.py [-h] --infile INFILE --outfile OUTFILE [--Rlim RLIM]
-                    [--Glim GLIM] [--Blim BLIM] [--modify]
-
-optional arguments:
-  -h, --help         show this help message and exit
-  --infile INFILE    Input file
-  --outfile OUTFILE  Output file
-  --Rlim RLIM        Limit of redness above which points will be dropped
-  --Glim GLIM        Limit of greeness above which points will be dropped
-  --Blim BLIM        Limit of blueness above which points will be dropped
-  --modify           Normalize the the R, G, B dimensions and return a lasfile
-
-```
-
-
-## src/quick_and_dirty_plots.Rmd ##
-
-Self explanatory R markdown for creating demonstration plot data quickly.  Created for generating demo plot data for presentations.  Not made with quality plot data for analysis in mind.
+## Choosing VARI Threshold
