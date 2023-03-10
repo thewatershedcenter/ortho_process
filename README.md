@@ -7,7 +7,7 @@ This workflow begins with the vendor supplied point cloud and works through clas
 + `unit1ppk_20220926_20230226-dsm.tiff`
 + `unit1ppk_20220926_20230226-orthomosaic.tiff`
 + `unit_1_boundary.gpkg`
-+ 
+
 
 The first step will be to classify the point cloud and create a DEM.  The script, `classify_burn_chunks_VARI.py` takes a copc as input then calculates the Visible Atmospherically Resistant Index (VARI) for each point and classifies anything above the provided threshold as vegetation.  The classified point cloud is written as tiles into a new subdirectory.  A DEM is created from the minimum value of the ground returns within a pixel and written as tiles to a subdirectory. For more information on choosing an appropriate value see Choosing VARI Threshold section below. 
 
