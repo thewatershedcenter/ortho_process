@@ -1,6 +1,6 @@
 # `ortho-process` | Tools for Processing Small GSD Photogrammetric Pointclouds 
 
-# UAV ortho processing workflow example#
+## UAV ortho processing workflow example
 
 This workflow begins with the vendor supplied point cloud and works through classification and quality control for the dataset. It is assumed that the vendor has provided a photogrammetric point cloud with RGB fields, a DSM and an orthoimage.  We also will need OGR readable vectors of the unit boundary and some sample points for testing. In this example we will be working in the directory `Unit_1` and the file contained therein are:
 + `unit1ppk_20220926_20230226-dense_point_cloud.laz`
