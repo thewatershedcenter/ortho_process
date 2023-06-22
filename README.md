@@ -133,8 +133,6 @@ The landscape in the example was severely  burned two years before the UAV image
 
 # Credits
 
-otho-process was created and is maintained by [Michael Huggins](https://github.com/kulpojke), on behalf of the [Watershed Research and Training Center](https://www.thewatershedcenter.com/).
-
 The [COPC](https://copc.io/) file format is created and maintained by HOBU Inc. Code relies on [PDAL](https://github.com/PDAL/PDAL) which is maintained by HOBU Inc.
 
 # References
